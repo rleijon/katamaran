@@ -3,6 +3,7 @@ package node
 import (
 	"fmt"
 	. "katamaran/pkg/data"
+	msg "katamaran/pkg/msg/pkg"
 	"katamaran/pkg/plist"
 	"math/rand"
 	"time"
@@ -76,7 +77,7 @@ func (n *Node) AddEntry(value []byte) bool {
 }
 
 func (n *Node) Tick() {
-	//fmt.Println("Tick", n.state, n.commitIndex, n.list.GetCurrentTerm(), n.list.GetNextIndex())
+	fmt.Println("Tick", n.state, n.commitIndex, n.list.GetCurrentTerm(), n.list.GetNextIndex())
 	if n.state == Leader {
 		if time.Now().After(n.nextHeartBeat) {
 			//fmt.Println("Leader - sending heartbeat")
@@ -173,7 +174,7 @@ func (n *Node) receivedHeartbeat() {
 	}
 }
 
-func (n *Node) AppendEntries(term Term, leaderId CandidateId, prevLogIndex Index, prevLogTerm Term, entries []Entry, leaderCommit Index) (Term, bool) {
+func (n *Node) AppendEntries(term Term, leaderId CandidateId, prevLogIndex Index, prevLogTerm Term, entries []*msg.Entry, leaderCommit Index) (Term, bool) {
 	if term < n.list.GetCurrentTerm() {
 		fmt.Println("Term before current term", term, n.list.GetCurrentTerm())
 		return n.list.GetCurrentTerm(), false
@@ -197,13 +198,13 @@ func (n *Node) AppendEntries(term Term, leaderId CandidateId, prevLogIndex Index
 		indexOfLast := 0
 		for i, v := range entries {
 			if Index(i+offset+1) < nextIndex {
-				if n.list.Get(Index(i+offset+1)).Term != v.Term {
+				if n.list.Get(Index(i+offset+1)).Term != Term(v.Term) {
 					fmt.Println("Mismatched log")
 					n.list.Truncate(Index(offset + i))
 				}
 			} else {
 				indexOfLast = offset + i + 1
-				n.list.Add(v)
+				n.list.Add(Entry{Index: Index(v.Index), Term: Term(v.Term), Value: v.Value})
 			}
 		}
 		if leaderCommit > n.commitIndex && indexOfLast > 0 {
