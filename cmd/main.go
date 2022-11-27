@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	. "katamaran/pkg/data"
 	msg "katamaran/pkg/msg/pkg"
 	"katamaran/pkg/node"
@@ -25,7 +26,7 @@ func RunNode(n node.Node, ch chan Message) {
 	}(n, ch)
 	for {
 		m := <-ch
-		switch m.value.(type) {
+		switch t := m.value.(type) {
 		case *msg.RequestVotesReq:
 			req := m.value.(*msg.RequestVotesReq)
 			_, voteGranted := n.RequestVote(Term(req.Term), CandidateId(req.Id), Index(req.LastIndex), Term(req.LastTerm))
@@ -41,6 +42,8 @@ func RunNode(n node.Node, ch chan Message) {
 			n.AddEntry(req.Value)
 		case node.TickReq:
 			n.Tick()
+		default:
+			fmt.Printf("Don't know type %T\n", t)
 		}
 	}
 }
@@ -56,7 +59,7 @@ type Server struct {
 }
 
 func (h *Server) AddEntry(ctxt context.Context, req *msg.AddEntryReq) (*msg.Empty, error) {
-	h.channel <- Message{req, nil}
+	//h.channel <- Message{req, nil}
 	return &msg.Empty{}, nil
 }
 
