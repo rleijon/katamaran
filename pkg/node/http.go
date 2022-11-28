@@ -58,20 +58,18 @@ func (h *HttpNodeClient) SendAppendEntries(node string, term Term, leaderId Cand
 	return response.CTerm, response.Success
 }
 
-type Server struct {
+type HttpServer struct {
 	channel chan Message
 }
 
 func StartHttpServer(address string, ch chan Message) {
 	http.ListenAndServe(
-		address, 
-		&Server{
-			channel: ch,
-		}
+		address,
+		&HttpServer{channel: ch},
 	)
 }
 
-func (h *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (h *HttpServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	rspChan := make(chan Request)
 	body := req.Body
 	var buf bytes.Buffer
