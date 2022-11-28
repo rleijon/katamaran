@@ -58,6 +58,17 @@ func (r *AddEntryReq) Unmarshal(reader io.Reader) {
 	r.Value = UnmarshalBytes(reader)
 }
 
+type AddEntryRsp struct {
+	Success bool
+}
+
+func (r *AddEntryRsp) Marshal(writer io.Writer) {
+	binary.Write(writer, binary.LittleEndian, r.Success)
+}
+func (r *AddEntryRsp) Unmarshal(reader io.Reader) {
+	binary.Read(reader, binary.LittleEndian, &r.Success)
+}
+
 type RequestVotesReq struct {
 	CTerm     Term
 	Id        CandidateId

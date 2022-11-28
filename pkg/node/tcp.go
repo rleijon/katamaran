@@ -2,6 +2,7 @@ package node
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	. "katamaran/pkg/data"
 	"log"
@@ -38,21 +39,41 @@ func (h *TcpNodeClient) GetCandidates() []CandidateId {
 	return candidates
 }
 
+func (h *TcpNodeClient) dialAndWrite(node string, header []byte) (net.Conn, error) {
+	var err error
+	if h.connections[node] == nil {
+		h.connections[node], err = net.Dial("tcp", node)
+		if err != nil {
+			return nil, err
+		}
+	}
+	_, err = h.connections[node].Write(header)
+	if err != nil {
+		h.connections[node].Close()
+		h.connections[node] = nil
+		return nil, err
+	}
+	return h.connections[node], nil
+}
+
 func (h *TcpNodeClient) RequestAllVotes(term Term, candidateId CandidateId, lastIndex Index, lastTerm Term) bool {
 	values := RequestVotesReq{CTerm: term, Id: candidateId, LastIndex: lastIndex, LastTerm: lastTerm}
 	var buf bytes.Buffer
 	values.Marshal(&buf)
 	bts := buf.Bytes()
 	votes := 0
-	for _, v := range h.connections {
-		v.Write(RequestAllVotesHeader)
-		_, e0 := v.Write(bts)
+	for k := range h.connections {
+		conn, e := h.dialAndWrite(k, RequestAllVotesHeader)
+		if e != nil {
+			continue
+		}
+		_, e0 := conn.Write(bts)
 		if e0 != nil {
 			fmt.Println("Error", e0)
 			continue
 		}
 		var response RequestVotesRsp
-		response.Unmarshal(v)
+		response.Unmarshal(conn)
 		if response.VoteGranted {
 			votes++
 		}
@@ -63,8 +84,10 @@ func (h *TcpNodeClient) RequestAllVotes(term Term, candidateId CandidateId, last
 
 func (h *TcpNodeClient) SendAppendEntries(node string, term Term, leaderId CandidateId, prevIndex Index, prevTerm Term, entries []Entry, leaderCommit Index) (Term, bool) {
 	values := AppendEntriesReq{CTerm: term, Id: leaderId, LastIndex: prevIndex, LastTerm: prevTerm, Entries: entries, CommitIndex: leaderCommit}
-	conn := h.connections[node]
-
+	conn, e := h.dialAndWrite(node, AppendEntriesHeader)
+	if e != nil {
+		return 0, false
+	}
 	conn.Write(AppendEntriesHeader)
 	values.Marshal(conn)
 	var response AppendEntriesRsp
@@ -73,11 +96,11 @@ func (h *TcpNodeClient) SendAppendEntries(node string, term Term, leaderId Candi
 }
 
 func StartTcpServer(address string, ch chan Message) {
+	l, err := net.Listen("tcp", address)
+	if err != nil {
+		log.Fatal(err)
+	}
 	for {
-		l, err := net.Listen("tcp", address)
-		if err != nil {
-			log.Fatal(err)
-		}
 		conn, _ := l.Accept()
 		go ServeTcpConnection(conn, ch)
 	}
@@ -87,7 +110,10 @@ func ServeTcpConnection(conn net.Conn, ch chan Message) {
 	header := make([]byte, 1)
 	rspChan := make(chan Request)
 	for {
-		conn.Read(header)
+		_, e := conn.Read(header)
+		if e != nil {
+			return
+		}
 		if header[0] == RequestAllVotesHeader[0] {
 			var req RequestVotesReq
 			req.Unmarshal(conn)
@@ -102,9 +128,15 @@ func ServeTcpConnection(conn net.Conn, ch chan Message) {
 			rsp := <-rspChan
 			rsp.Marshal(conn)
 		} else if header[0] == AddEntryHeader[0] {
-			var req AddEntryReq
-			req.Unmarshal(conn)
-			ch <- Message{Value: &req, RspChan: nil}
+			var noEntries int32
+			binary.Read(conn, binary.LittleEndian, &noEntries)
+			for i := int32(0); i < noEntries; i++ {
+				var req AddEntryReq
+				req.Unmarshal(conn)
+				ch <- Message{Value: &req, RspChan: nil}
+			}
+			//Response
+			conn.Write([]byte{0x01})
 		} else {
 			fmt.Println("Unknown header ", header[0])
 		}
