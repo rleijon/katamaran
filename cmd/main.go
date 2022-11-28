@@ -1,10 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
-	"fmt"
-	"io/ioutil"
 	. "katamaran/pkg/data"
 	"katamaran/pkg/node"
 	"net/http"
@@ -17,64 +14,27 @@ func RunNode(n node.Node, ch chan Message) {
 	go func(n node.Node, ch chan Message) {
 		for {
 			time.Sleep(time.Second)
-			ch <- Message{node.TickReq{}, nil}
+			ch <- Message{Value: &TickReq{}, RspChan: nil}
 		}
 	}(n, ch)
 	for {
 		msg := <-ch
-		switch msg.value.(type) {
-		case node.RequestVotesReq:
-			req := msg.value.(node.RequestVotesReq)
+		switch msg.Value.(type) {
+		case *RequestVotesReq:
+			req := msg.Value.(*RequestVotesReq)
 			_, voteGranted := n.RequestVote(req.CTerm, req.Id, req.LastIndex, req.LastTerm)
-			msg.rspChan <- node.RequestVotesRsp{VoteGranted: voteGranted}
-		case node.AppendEntriesReq:
-			req := msg.value.(node.AppendEntriesReq)
-			//fmt.Println("Received", req)
+			msg.RspChan <- &RequestVotesRsp{VoteGranted: voteGranted}
+		case *AppendEntriesReq:
+			req := msg.Value.(*AppendEntriesReq)
 			term, success := n.AppendEntries(req.CTerm, req.Id, req.LastIndex, req.LastTerm, req.Entries, req.CommitIndex)
-			msg.rspChan <- node.AppendEntriesRsp{CTerm: term, Success: success}
-		case node.AddEntryReq:
-			req := msg.value.(node.AddEntryReq)
-			success := n.AddEntry(req.Value)
-			msg.rspChan <- success
-		case node.TickReq:
+			msg.RspChan <- &AppendEntriesRsp{CTerm: term, Success: success}
+		case *AddEntryReq:
+			req := msg.Value.(*AddEntryReq)
+			n.AddEntry(req.Value)
+		case *TickReq:
 			n.Tick()
 		}
 	}
-}
-
-type Message struct {
-	value   interface{}
-	rspChan chan interface{}
-}
-
-type Server struct {
-	channel chan Message
-}
-
-func (h *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	rspChan := make(chan interface{})
-	msg, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		fmt.Println("ERROR", err)
-		return
-	}
-	if strings.Contains(req.URL.Path, "requestVote") {
-		var req node.RequestVotesReq
-		json.Unmarshal(msg, &req)
-		h.channel <- Message{req, rspChan}
-	} else if strings.Contains(req.URL.Path, "appendEntry") {
-		var req node.AppendEntriesReq
-		json.Unmarshal(msg, &req)
-		h.channel <- Message{req, rspChan}
-	} else if strings.Contains(req.URL.Path, "addEntry") {
-		var req node.AddEntryReq
-		json.Unmarshal(msg, &req)
-		h.channel <- Message{req, rspChan}
-	}
-	rsp := <-rspChan
-	//fmt.Println("Replying", rsp, reflect.TypeOf(rsp).String())
-	rspBytes, _ := json.Marshal(rsp)
-	w.Write(rspBytes)
 }
 
 func main() {
@@ -88,5 +48,5 @@ func main() {
 	ch := make(chan Message)
 
 	go RunNode(n, ch)
-	http.ListenAndServe("localhost:"+strconv.Itoa(*port), &Server{ch})
+	node.StartHttpServer("localhost:"+strconv.Itoa(*port), ch)
 }

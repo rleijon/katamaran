@@ -2,11 +2,11 @@ package node
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	. "katamaran/pkg/data"
 	"net/http"
+	"strings"
 )
 
 type HttpNodeClient struct {
@@ -15,39 +15,6 @@ type HttpNodeClient struct {
 
 func MakeHttpSender(allNodes []string) HttpNodeClient {
 	return HttpNodeClient{allNodes: allNodes}
-}
-
-type RequestVotesRsp struct {
-	VoteGranted bool
-}
-
-type TickReq struct {
-	Value string
-}
-
-type AddEntryReq struct {
-	Value []byte
-}
-
-type RequestVotesReq struct {
-	CTerm     Term
-	Id        CandidateId
-	LastIndex Index
-	LastTerm  Term
-}
-
-type AppendEntriesRsp struct {
-	CTerm   Term
-	Success bool
-}
-
-type AppendEntriesReq struct {
-	CTerm       Term
-	Id          CandidateId
-	LastIndex   Index
-	LastTerm    Term
-	Entries     []Entry
-	CommitIndex Index
 }
 
 func (h *HttpNodeClient) GetCandidates() []CandidateId {
@@ -59,24 +26,17 @@ func (h *HttpNodeClient) GetCandidates() []CandidateId {
 }
 
 func (h *HttpNodeClient) RequestAllVotes(term Term, candidateId CandidateId, lastIndex Index, lastTerm Term) bool {
-	values := RequestVotesReq{term, candidateId, lastIndex, lastTerm}
-	jsonValue, _ := json.Marshal(values)
+	values := RequestVotesReq{CTerm: term, Id: candidateId, LastIndex: lastIndex, LastTerm: lastTerm}
+	var buf bytes.Buffer
+	values.Marshal(&buf)
 	votes := 0
 	for _, v := range h.allNodes {
-		rsp, e0 := http.Post("http://"+v+"/requestVote", "application/json", bytes.NewReader(jsonValue))
+		rsp, e0 := http.Post("http://"+v+"/requestVote", "application/json", &buf)
 		if e0 != nil {
 			continue
 		}
-		bts, e1 := ioutil.ReadAll(rsp.Body)
-		if e1 != nil {
-			continue
-		}
 		var response RequestVotesRsp
-		err := json.Unmarshal(bts, &response)
-		if err != nil {
-			fmt.Println("Error: ", err)
-			continue
-		}
+		response.Unmarshal(rsp.Body)
 		if response.VoteGranted {
 			votes++
 		}
@@ -86,21 +46,52 @@ func (h *HttpNodeClient) RequestAllVotes(term Term, candidateId CandidateId, las
 }
 
 func (h *HttpNodeClient) SendAppendEntries(node string, term Term, leaderId CandidateId, prevIndex Index, prevTerm Term, entries []Entry, leaderCommit Index) (Term, bool) {
-	values := AppendEntriesReq{term, leaderId, prevIndex, prevTerm, entries, leaderCommit}
-	//fmt.Println("Appending", values)
-	jsonValue, _ := json.Marshal(values)
-	rsp, e0 := http.Post("http://"+node+"/appendEntry", "application/json", bytes.NewReader(jsonValue))
+	values := AppendEntriesReq{CTerm: term, Id: leaderId, LastIndex: prevIndex, LastTerm: prevTerm, Entries: entries, CommitIndex: leaderCommit}
+	var buf bytes.Buffer
+	values.Marshal(&buf)
+	rsp, e0 := http.Post("http://"+node+"/appendEntry", "application/json", &buf)
 	if e0 != nil {
 		return Term(0), false
 	}
-	bts, e1 := ioutil.ReadAll(rsp.Body)
-	if e1 != nil {
-		return Term(0), false
-	}
 	var response AppendEntriesRsp
-	err := json.Unmarshal(bts, &response)
-	if err != nil {
-		fmt.Println("Error: ", err)
-	}
+	response.Unmarshal(rsp.Body)
 	return response.CTerm, response.Success
+}
+
+type Server struct {
+	channel chan Message
+}
+
+func StartHttpServer(address string, ch chan Message) {
+	http.ListenAndServe(
+		address, 
+		&Server{
+			channel: ch,
+		}
+	)
+}
+
+func (h *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	rspChan := make(chan Request)
+	body := req.Body
+	var buf bytes.Buffer
+	if strings.Contains(req.URL.Path, "requestVote") {
+		var req RequestVotesReq
+		req.Unmarshal(body)
+		h.channel <- Message{Value: &req, RspChan: rspChan}
+		rsp := <-rspChan
+		rsp.Marshal(&buf)
+		w.Write(buf.Bytes())
+	} else if strings.Contains(req.URL.Path, "appendEntry") {
+		var req AppendEntriesReq
+		req.Unmarshal(body)
+		h.channel <- Message{Value: &req, RspChan: rspChan}
+		rsp := <-rspChan
+		rsp.Marshal(&buf)
+		w.Write(buf.Bytes())
+	} else if strings.Contains(req.URL.Path, "addEntry") {
+		var req AddEntryReq
+		req.Value, _ = ioutil.ReadAll(body)
+		h.channel <- Message{Value: &req, RspChan: rspChan}
+	}
 }
