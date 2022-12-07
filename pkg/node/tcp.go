@@ -129,10 +129,18 @@ func ServeTcpConnection(conn net.Conn, ch chan Message) {
 			rsp.Marshal(conn)
 		} else if header[0] == AddEntryHeader[0] {
 			var noEntries int32
-			binary.Read(conn, binary.LittleEndian, &noEntries)
+			e := binary.Read(conn, binary.LittleEndian, &noEntries)
+			if e != nil {
+				fmt.Println("Can't read number of entries", e)
+				continue
+			}
 			for i := int32(0); i < noEntries; i++ {
 				var req AddEntryReq
-				req.Unmarshal(conn)
+				e := req.Unmarshal(conn)
+				if e != nil {
+					fmt.Println("Can't read entry", e)
+					continue
+				}
 				ch <- Message{Value: &req, RspChan: nil}
 			}
 			//Response

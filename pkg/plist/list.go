@@ -18,9 +18,10 @@ type Data interface {
 	Add(Entry)
 	Truncate(Index) error
 	Get(Index) Entry
-	GetAll() []Entry
+	GetAllAfter(Index) []Entry
 	GetNextIndex() Index
 	GetLastEntry() Entry
+	Flush()
 }
 
 type PList struct {
@@ -65,6 +66,9 @@ func MakePList(id CandidateId) *PList {
 		db:          db,
 		errorLogger: log.New(os.Stdout, "ERROR\t", log.Ldate|log.Ltime|log.Lshortfile),
 	}
+}
+
+func (p *PList) Flush() {
 }
 
 func (p *PList) SetVotedFor(votedFor *CandidateId) {
@@ -156,8 +160,8 @@ func (p *PList) Get(index Index) Entry {
 	return entry
 }
 
-func (p *PList) GetAll() []Entry {
-	res, e0 := p.db.Query("SELECT idx, val, term as idx FROM TRANSACTION_LOG")
+func (p *PList) GetAllAfter(index Index) []Entry {
+	res, e0 := p.db.Query("SELECT idx, val, term as idx FROM TRANSACTION_LOG where idx >= ?", index)
 	if e0 != nil {
 		p.errorLogger.Fatal("GetAll", "e0", e0)
 	}

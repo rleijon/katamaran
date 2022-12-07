@@ -45,11 +45,38 @@ func min[T constraints.Ordered](a, b T) T {
 	return b
 }
 
+func (n *Node) RunNode(ch chan Message) {
+	go func(ch chan Message) {
+		for {
+			time.Sleep(time.Second)
+			ch <- Message{Value: &TickReq{}, RspChan: nil}
+		}
+	}(ch)
+	for {
+		msg := <-ch
+		switch msg.Value.(type) {
+		case *RequestVotesReq:
+			req := msg.Value.(*RequestVotesReq)
+			_, voteGranted := n.RequestVote(req.CTerm, req.Id, req.LastIndex, req.LastTerm)
+			msg.RspChan <- &RequestVotesRsp{VoteGranted: voteGranted}
+		case *AppendEntriesReq:
+			req := msg.Value.(*AppendEntriesReq)
+			term, success := n.AppendEntries(req.CTerm, req.Id, req.LastIndex, req.LastTerm, req.Entries, req.CommitIndex)
+			msg.RspChan <- &AppendEntriesRsp{CTerm: term, Success: success}
+		case *AddEntryReq:
+			req := msg.Value.(*AddEntryReq)
+			n.AddEntry(req.Value)
+		case *TickReq:
+			n.Tick()
+		}
+	}
+}
+
 func MakeNode(id CandidateId, sender Sender) Node {
 	n := Node{
 		id:          id,
 		leaderId:    nil,
-		list:        plist.MakeNList(id),
+		list:        plist.MakeMMAPList(id),
 		commitIndex: 0,
 		lastApplied: -1,
 		nextIndex:   make(map[CandidateId]Index),
@@ -76,7 +103,7 @@ func (n *Node) AddEntry(value []byte) bool {
 }
 
 func (n *Node) Tick() {
-	//fmt.Println("Tick", n.state, n.commitIndex, n.list.GetCurrentTerm(), n.list.GetNextIndex())
+	fmt.Println("Tick", n.state, n.commitIndex, n.list.GetCurrentTerm(), n.list.GetNextIndex())
 	if n.state == Leader {
 		if time.Now().After(n.nextHeartBeat) {
 			//fmt.Println("Leader - sending heartbeat")
@@ -84,7 +111,13 @@ func (n *Node) Tick() {
 			n.nextHeartBeat = time.Now().Add(ElectionTimeout / 3)
 		}
 		lastEntry := n.getLastEntry()
-		allEntries := n.list.GetAll()
+		min := Index(99999999)
+		for _, v := range n.nextIndex {
+			if v < min {
+				min = v
+			}
+		}
+		allEntries := n.list.GetAllAfter(min)
 		for k, v := range n.nextIndex {
 			if lastEntry.Index < v {
 				continue
@@ -123,6 +156,7 @@ func (n *Node) Tick() {
 		fmt.Println("Election timeout - converting to candidate")
 		n.convertToCandidate()
 	}
+	n.list.Flush()
 }
 
 func (n *Node) sendHeartbeat() {

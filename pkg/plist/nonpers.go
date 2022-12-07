@@ -16,6 +16,8 @@ func MakeNList(id CandidateId) *NList {
 	}
 }
 
+func (p *NList) Flush() {
+}
 func (n *NList) SetVotedFor(votedFor *CandidateId) {
 	n.votedFor = votedFor
 }
@@ -38,8 +40,8 @@ func (n *NList) Truncate(index Index) error {
 func (n *NList) Get(index Index) Entry {
 	return n.entries[index]
 }
-func (n *NList) GetAll() []Entry {
-	return n.entries
+func (n *NList) GetAllAfter(id Index) []Entry {
+	return n.entries[id:]
 }
 func (n *NList) GetNextIndex() Index {
 	return Index(len(n.entries))
