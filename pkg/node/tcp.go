@@ -88,8 +88,10 @@ func (h *TcpNodeClient) SendAppendEntries(node string, term Term, leaderId Candi
 	if e != nil {
 		return 0, false
 	}
-	conn.Write(AppendEntriesHeader)
-	values.Marshal(conn)
+	e = values.Marshal(conn)
+	if e != nil {
+		fmt.Println("Heartbeat error", e)
+	}
 	var response AppendEntriesRsp
 	response.Unmarshal(conn)
 	return response.CTerm, response.Success
@@ -112,6 +114,7 @@ func ServeTcpConnection(conn net.Conn, ch chan Message) {
 	for {
 		_, e := conn.Read(header)
 		if e != nil {
+			fmt.Println("Error received on tcp connection ", e)
 			return
 		}
 		if header[0] == RequestAllVotesHeader[0] {

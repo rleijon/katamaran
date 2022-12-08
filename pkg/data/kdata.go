@@ -53,6 +53,10 @@ type Entry struct {
 	Term  Term
 }
 
+func (r *Entry) MarshalledSize() int32 {
+	return int32(12 + len(r.Value))
+}
+
 func (r *Entry) Marshal(writer io.Writer) error {
 	e0 := MarshalInt32(writer, int32(r.Index))
 	if e0 != nil {

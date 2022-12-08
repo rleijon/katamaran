@@ -62,6 +62,7 @@ func (n *Node) RunNode(ch chan Message) {
 		case *AppendEntriesReq:
 			req := msg.Value.(*AppendEntriesReq)
 			term, success := n.AppendEntries(req.CTerm, req.Id, req.LastIndex, req.LastTerm, req.Entries, req.CommitIndex)
+			fmt.Println("Handling append entries:", term, success)
 			msg.RspChan <- &AppendEntriesRsp{CTerm: term, Success: success}
 		case *AddEntryReq:
 			req := msg.Value.(*AddEntryReq)
@@ -106,7 +107,6 @@ func (n *Node) Tick() {
 	fmt.Println("Tick", n.state, n.commitIndex, n.list.GetCurrentTerm(), n.list.GetNextIndex())
 	if n.state == Leader {
 		if time.Now().After(n.nextHeartBeat) {
-			//fmt.Println("Leader - sending heartbeat")
 			n.sendHeartbeat()
 			n.nextHeartBeat = time.Now().Add(ElectionTimeout / 3)
 		}
@@ -117,17 +117,23 @@ func (n *Node) Tick() {
 				min = v
 			}
 		}
+		if min > 5 {
+			min = min - 5
+		} else {
+			min = 0
+		}
 		allEntries := n.list.GetAllAfter(min)
+		fmt.Println("TickMin:", min, n.nextIndex)
 		for k, v := range n.nextIndex {
 			if lastEntry.Index < v {
 				continue
 			}
-			entries := allEntries[v:]
+			entries := allEntries[v-min:]
 			var prev Entry
 			if v == 0 {
 				prev = Entry{Value: nil, Index: -1, Term: 0}
 			} else {
-				prev = allEntries[v-1]
+				prev = allEntries[v-min-1]
 			}
 
 			_, success := n.sender.SendAppendEntries(string(k), n.list.GetCurrentTerm(), n.id, prev.Index, prev.Term, entries, n.commitIndex)
@@ -135,7 +141,7 @@ func (n *Node) Tick() {
 				n.nextIndex[k] = lastEntry.Index + 1
 				n.matchIndex[k] = lastEntry.Index + 1
 			} else if v > 0 {
-				n.nextIndex[k] = v - 1
+				n.nextIndex[k] = v - min - 1
 			}
 
 		}
@@ -231,7 +237,7 @@ func (n *Node) AppendEntries(term Term, leaderId CandidateId, prevLogIndex Index
 		indexOfLast := 0
 		for i, v := range entries {
 			if Index(i+offset+1) < nextIndex {
-				if n.list.Get(Index(i+offset+1)).Term != v.Term {
+ 					if n.list.Get(Index(i+offset+1)).Term != v.Term {
 					fmt.Println("Mismatched log")
 					n.list.Truncate(Index(offset + i))
 				}

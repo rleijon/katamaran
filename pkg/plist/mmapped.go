@@ -17,8 +17,12 @@ type MMAPList struct {
 	votedForCached    *CandidateId
 	currentTerm       *os.File
 	currentTermCached Term
+	logsFile          *os.File
 	logs              *bufio.Writer
 	logsCached        []Entry
+	indexFile         *os.File
+	index             *bufio.Writer
+	indicesCached     map[Index]int32
 }
 
 func MakeMMAPList(id CandidateId) *MMAPList {
@@ -26,6 +30,10 @@ func MakeMMAPList(id CandidateId) *MMAPList {
 	logs, e0 := os.OpenFile(fmt.Sprintf("%s/log", id), os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
 	if e0 != nil {
 		log.Fatal(e0)
+	}
+	indices, e1 := os.OpenFile(fmt.Sprintf("%s/index", id), os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
+	if e1 != nil {
+		log.Fatal(e1)
 	}
 	votedFor, e2 := os.OpenFile(fmt.Sprintf("%s/votedFor", id), os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
 	if e2 != nil {
@@ -44,9 +52,37 @@ func MakeMMAPList(id CandidateId) *MMAPList {
 	list.currentTermCached = list.getCurrentTermInternal()
 	list.votedForCached = list.getVotedForInternal()
 	list.logsCached = readAllEntriesInternal(logs)
+	list.indicesCached = readAllIndicesInternal(logs)
 	list.logs = bufio.NewWriter(logs)
+	list.logsFile = logs
+	list.index = bufio.NewWriter(indices)
+	list.indexFile = indices
 	fmt.Println("Finished loading ", len(list.logsCached), "items")
 	return list
+}
+
+func readAllIndicesInternal(index *os.File) map[Index]int32 {
+	indexr := bufio.NewReader(index)
+	indices := make(map[Index]int32)
+	c := 0
+	for {
+		_, e := indexr.Peek(12)
+		if e != nil {
+			break
+		}
+		var entry EntryIndex
+		e = entry.Unmarshal(indexr)
+		if e != nil {
+			fmt.Println("Could not load index:", e)
+			break
+		}
+		indices[entry.Id] = entry.Pos
+		c++
+		if c%100 == 0 {
+			fmt.Println("Loaded", c, "indices", indexr.Buffered())
+		}
+	}
+	return indices
 }
 
 func readAllEntriesInternal(logs *os.File) []Entry {
@@ -130,6 +166,20 @@ func (n *MMAPList) Add(entry Entry) {
 		fmt.Println("Could not write entry:", e)
 	}
 	n.logsCached = append(n.logsCached, entry)
+	n.addIndex(entry.Index, entry.MarshalledSize())
+}
+
+func (n *MMAPList) addIndex(index Index, size int32) {
+	entrySize := size
+	if len(n.indicesCached) > 0 {
+		entrySize += n.indicesCached[index-1]
+	}
+	idx := EntryIndex{Id: index, Pos: entrySize}
+	e := idx.Marshal(n.index)
+	n.indicesCached[index] = entrySize
+	if e != nil {
+		fmt.Println("Could not write index:", e)
+	}
 }
 
 func (n *MMAPList) Get(index Index) Entry {
@@ -141,12 +191,25 @@ func (n *MMAPList) GetAllAfter(index Index) []Entry {
 }
 
 func (n *MMAPList) Truncate(index Index) error {
-	log.Fatal("Can't truncate.")
-	//n.indexCached = n.indexCached[:index]
-	//n.logsCached = n.logsCached[:index]
-	//n.logs.Truncate(int64(n.indexCached[index+1].Pos))
-	//return n.index.Truncate(int64(index * 8))
-	return nil
+	for i := index + 1; int(i) < len(n.logsCached); i++ {
+		delete(n.indicesCached, i)
+	}
+	n.logsCached = n.logsCached[:index]
+
+	var e error
+	e = n.logs.Flush()
+	if e != nil {
+		log.Fatal(e)
+	}
+	e = n.logsFile.Truncate(int64(n.indicesCached[index]))
+	if e != nil {
+		log.Fatal(e)
+	}
+	e = n.index.Flush()
+	if e != nil {
+		log.Fatal(e)
+	}
+	return n.indexFile.Truncate(int64(8 * index))
 }
 
 func (n *MMAPList) GetNextIndex() Index {
