@@ -52,7 +52,7 @@ func MakeMMAPList(id CandidateId) *MMAPList {
 	list.currentTermCached = list.getCurrentTermInternal()
 	list.votedForCached = list.getVotedForInternal()
 	list.logsCached = readAllEntriesInternal(logs)
-	list.indicesCached = readAllIndicesInternal(logs)
+	list.indicesCached = readAllIndicesInternal(indices)
 	list.logs = bufio.NewWriter(logs)
 	list.logsFile = logs
 	list.index = bufio.NewWriter(indices)
@@ -78,7 +78,7 @@ func readAllIndicesInternal(index *os.File) map[Index]int32 {
 		}
 		indices[entry.Id] = entry.Pos
 		c++
-		if c%100 == 0 {
+		if c%100000 == 0 {
 			fmt.Println("Loaded", c, "indices", indexr.Buffered())
 		}
 	}
@@ -102,7 +102,7 @@ func readAllEntriesInternal(logs *os.File) []Entry {
 		}
 		entries = append(entries, entry)
 		c++
-		if c%100 == 0 {
+		if c%100000 == 0 {
 			fmt.Println("Loaded", c, "items", logsr.Buffered())
 		}
 	}
@@ -111,6 +111,7 @@ func readAllEntriesInternal(logs *os.File) []Entry {
 
 func (p *MMAPList) Flush() {
 	p.logs.Flush()
+	p.index.Flush()
 }
 
 func (n *MMAPList) getCurrentTermInternal() Term {

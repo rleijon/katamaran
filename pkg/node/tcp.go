@@ -90,7 +90,7 @@ func (h *TcpNodeClient) SendAppendEntries(node string, term Term, leaderId Candi
 	}
 	e = values.Marshal(conn)
 	if e != nil {
-		fmt.Println("Heartbeat error", e)
+		fmt.Println("Heartbeat error", e, values)
 	}
 	var response AppendEntriesRsp
 	response.Unmarshal(conn)
@@ -149,7 +149,7 @@ func ServeTcpConnection(conn net.Conn, ch chan Message) {
 			//Response
 			conn.Write([]byte{0x01})
 		} else {
-			fmt.Println("Unknown header ", header[0])
+			log.Fatal("Unknown header ", header[0])
 		}
 	}
 }

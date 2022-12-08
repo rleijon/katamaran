@@ -62,7 +62,6 @@ func (n *Node) RunNode(ch chan Message) {
 		case *AppendEntriesReq:
 			req := msg.Value.(*AppendEntriesReq)
 			term, success := n.AppendEntries(req.CTerm, req.Id, req.LastIndex, req.LastTerm, req.Entries, req.CommitIndex)
-			fmt.Println("Handling append entries:", term, success)
 			msg.RspChan <- &AppendEntriesRsp{CTerm: term, Success: success}
 		case *AddEntryReq:
 			req := msg.Value.(*AddEntryReq)
@@ -104,13 +103,13 @@ func (n *Node) AddEntry(value []byte) bool {
 }
 
 func (n *Node) Tick() {
-	fmt.Println("Tick", n.state, n.commitIndex, n.list.GetCurrentTerm(), n.list.GetNextIndex())
+	lastEntry := n.getLastEntry()
+	fmt.Println("Tick", n.state, lastEntry.Index, n.commitIndex, n.list.GetCurrentTerm(), n.list.GetNextIndex())
 	if n.state == Leader {
 		if time.Now().After(n.nextHeartBeat) {
 			n.sendHeartbeat()
 			n.nextHeartBeat = time.Now().Add(ElectionTimeout / 3)
 		}
-		lastEntry := n.getLastEntry()
 		min := Index(99999999)
 		for _, v := range n.nextIndex {
 			if v < min {
@@ -123,7 +122,6 @@ func (n *Node) Tick() {
 			min = 0
 		}
 		allEntries := n.list.GetAllAfter(min)
-		fmt.Println("TickMin:", min, n.nextIndex)
 		for k, v := range n.nextIndex {
 			if lastEntry.Index < v {
 				continue
@@ -142,10 +140,10 @@ func (n *Node) Tick() {
 				n.matchIndex[k] = lastEntry.Index + 1
 			} else if v > 0 {
 				n.nextIndex[k] = v - min - 1
+				n.matchIndex[k] = v - min - 1
 			}
-
 		}
-		for n.commitIndex < Index(len(allEntries)) {
+		for n.commitIndex <= lastEntry.Index {
 			matches := 0
 			for _, v := range n.matchIndex {
 				if v > n.commitIndex {
@@ -237,8 +235,8 @@ func (n *Node) AppendEntries(term Term, leaderId CandidateId, prevLogIndex Index
 		indexOfLast := 0
 		for i, v := range entries {
 			if Index(i+offset+1) < nextIndex {
- 					if n.list.Get(Index(i+offset+1)).Term != v.Term {
-					fmt.Println("Mismatched log")
+				if n.list.Get(Index(i+offset+1)).Term != v.Term {
+					fmt.Println("Mismatched log", i+offset+1, v)
 					n.list.Truncate(Index(offset + i))
 				}
 			} else {
