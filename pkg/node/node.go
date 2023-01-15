@@ -65,7 +65,7 @@ func (n *Node) RunNode(ch chan Message) {
 			msg.RspChan <- &AppendEntriesRsp{CTerm: term, Success: success}
 		case *AddEntryReq:
 			req := msg.Value.(*AddEntryReq)
-			n.AddEntry(req.Value)
+			n.AddEntry(req.Key, req.Value)
 		case *TickReq:
 			n.Tick()
 		}
@@ -94,11 +94,11 @@ func (n *Node) getLastEntry() Entry {
 	return n.list.GetLastEntry()
 }
 
-func (n *Node) AddEntry(value []byte) bool {
+func (n *Node) AddEntry(key []byte, value []byte) bool {
 	if n.state != Leader {
 		return false
 	}
-	n.list.Add(Entry{Value: value, Index: n.list.GetNextIndex(), Term: n.list.GetCurrentTerm()})
+	n.list.Add(Entry{KV: KeyValue{Key: key, Value: value}, Index: n.list.GetNextIndex(), Term: n.list.GetCurrentTerm()})
 	return true
 }
 
@@ -129,7 +129,7 @@ func (n *Node) Tick() {
 			entries := allEntries[v-min:]
 			var prev Entry
 			if v == 0 {
-				prev = Entry{Value: nil, Index: -1, Term: 0}
+				prev = Entry{KV: KeyValue{}, Index: -1, Term: 0}
 			} else {
 				prev = allEntries[v-min-1]
 			}
@@ -167,7 +167,7 @@ func (n *Node) sendHeartbeat() {
 	for k, v := range n.nextIndex {
 		var prev Entry
 		if v == 0 {
-			prev = Entry{Value: nil, Index: -1, Term: 0}
+			prev = Entry{KV: KeyValue{}, Index: -1, Term: 0}
 		} else {
 			prev = n.list.Get(v - 1)
 		}

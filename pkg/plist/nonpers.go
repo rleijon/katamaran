@@ -48,7 +48,7 @@ func (n *NList) GetNextIndex() Index {
 }
 func (n *NList) GetLastEntry() Entry {
 	if len(n.entries) == 0 {
-		return Entry{Value: nil, Index: -1, Term: 0}
+		return Entry{KV: KeyValue{}, Index: -1, Term: 0}
 	}
 	return n.entries[len(n.entries)-1]
 }

@@ -47,14 +47,44 @@ func (r *EntryIndex) Unmarshal(reader io.Reader) error {
 	return nil
 }
 
-type Entry struct {
+type KeyValue struct {
+	Key   []byte
 	Value []byte
+}
+
+func (r *KeyValue) MarshalledSize() int32 {
+	return int32(8 + len(r.Key) + len(r.Value))
+}
+
+func (r *KeyValue) Marshal(writer io.Writer) error {
+	if e := MarshalBytes(writer, r.Key); e != nil {
+		return e
+	}
+	return MarshalBytes(writer, r.Value)
+}
+
+func (r *KeyValue) Unmarshal(reader io.Reader) error {
+	key, e0 := UnmarshalBytes(reader)
+	if e0 != nil {
+		return e0
+	}
+	value, e1 := UnmarshalBytes(reader)
+	if e1 != nil {
+		return e1
+	}
+	r.Key = key
+	r.Value = value
+	return nil
+}
+
+type Entry struct {
+	KV    KeyValue
 	Index Index
 	Term  Term
 }
 
 func (r *Entry) MarshalledSize() int32 {
-	return int32(12 + len(r.Value))
+	return int32(8 + r.KV.MarshalledSize())
 }
 
 func (r *Entry) Marshal(writer io.Writer) error {
@@ -66,7 +96,7 @@ func (r *Entry) Marshal(writer io.Writer) error {
 	if e1 != nil {
 		return e1
 	}
-	return MarshalBytes(writer, r.Value)
+	return r.KV.Marshal(writer)
 }
 
 func (r *Entry) Unmarshal(reader io.Reader) error {
@@ -78,14 +108,9 @@ func (r *Entry) Unmarshal(reader io.Reader) error {
 	if e0 != nil {
 		return e0
 	}
-	value, e0 := UnmarshalBytes(reader)
-	if e0 != nil {
-		return e0
-	}
 	r.Index = Index(index)
 	r.Term = Term(term)
-	r.Value = value
-	return nil
+	return r.KV.Unmarshal(reader)
 }
 
 type RequestVotesRsp struct {
@@ -112,15 +137,20 @@ func (r *TickReq) Unmarshal(reader io.Reader) error {
 }
 
 type AddEntryReq struct {
+	Key   []byte
 	Value []byte
 }
 
 func (r *AddEntryReq) Marshal(writer io.Writer) error {
+	if e := MarshalBytes(writer, r.Key); e != nil {
+		return e
+	}
 	return MarshalBytes(writer, r.Value)
 }
 
 func (r *AddEntryReq) Unmarshal(reader io.Reader) error {
 	var err error
+	r.Key, err = UnmarshalBytes(reader)
 	r.Value, err = UnmarshalBytes(reader)
 	return err
 }

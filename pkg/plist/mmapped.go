@@ -219,7 +219,7 @@ func (n *MMAPList) GetNextIndex() Index {
 
 func (n *MMAPList) GetLastEntry() Entry {
 	if len(n.logsCached) == 0 {
-		return Entry{Index: -1, Term: 0, Value: nil}
+		return Entry{Index: -1, Term: 0, KV: KeyValue{}}
 	}
 	return n.logsCached[len(n.logsCached)-1]
 }
